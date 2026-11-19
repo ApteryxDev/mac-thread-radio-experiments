@@ -1,0 +1,16 @@
+# Local OpenThread source and builds
+work/
+
+# Your own network identity and service config (never commit these)
+bridge/network.json
+service/config.json
+**/thread.datasets
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store

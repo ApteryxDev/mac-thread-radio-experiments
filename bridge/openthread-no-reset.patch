@@ -1,0 +1,171 @@
+diff --git a/src/core/thread/mle.cpp b/src/core/thread/mle.cpp
+index 784b6fb..fbd4ea9 100644
+--- a/src/core/thread/mle.cpp
++++ b/src/core/thread/mle.cpp
+@@ -33,6 +33,10 @@
+ 
+ #include "mle.hpp"
+ 
++#if defined(OT_THREAD_ATTACH_TRACE)
++#include <stdio.h>
++#endif
++
+ #include "instance/instance.hpp"
+ #include "openthread/platform/toolchain.h"
+ #include "radio/ble_secure.hpp"
+@@ -5083,6 +5087,9 @@ void Mle::Attacher::SendParentRequest(ParentRequestType aType)
+     }
+ 
+     SuccessOrExit(error = message->SendTo(destination));
++#if defined(OT_THREAD_ATTACH_TRACE)
++    fputs("thread-attach: Parent requests queued\n", stderr);
++#endif
+ 
+     switch (aType)
+     {
+@@ -5108,6 +5115,10 @@ void Mle::Attacher::HandleChildIdRequestTxDone(const otMessage *aMessage, otErro
+ void Mle::Attacher::HandleChildIdRequestTxDone(const Message &aMessage, Error aError)
+ {
+     VerifyOrExit(mState == kStateChildIdRequest);
++#if defined(OT_THREAD_ATTACH_TRACE)
++    fputs(aError == kErrorNone ? "thread-attach: Child ID request TX succeeded\n"
++                               : "thread-attach: Child ID request TX failed\n", stderr);
++#endif
+ 
+     if ((aError == kErrorNone) && !Get<Mle>().IsRxOnWhenIdle())
+     {
+@@ -5191,6 +5202,9 @@ Error Mle::Attacher::SendChildIdRequest(void)
+ 
+     destination.InitAsLinkLocalAddress(mParentCandidate.GetExtAddress());
+     SuccessOrExit(error = message->SendTo(destination));
++#if defined(OT_THREAD_ATTACH_TRACE)
++    fputs("thread-attach: Child ID requests queued\n", stderr);
++#endif
+ 
+     Log(kMessageSend,
+         (mAddressRegistrationMode == kAppendMeshLocalOnly) ? kTypeChildIdRequestShort : kTypeChildIdRequest,
+@@ -5299,6 +5313,9 @@ void Mle::Attacher::HandleParentResponse(RxInfo &aRxInfo)
+     Mac::ExtAddress  extAddress;
+     Mac::CslAccuracy cslAccuracy;
+ 
++#if defined(OT_THREAD_ATTACH_TRACE)
++    fputs("thread-attach: Parent responses processed\n", stderr);
++#endif
+     SuccessOrExit(error = Tlv::Find<SourceAddressTlv>(aRxInfo.mMessage, sourceAddress));
+ 
+     Log(kMessageReceive, kTypeParentResponse, aRxInfo.mMessageInfo.GetPeerAddr(), sourceAddress);
+@@ -5457,6 +5474,9 @@ void Mle::Attacher::HandleParentResponse(RxInfo &aRxInfo)
+                                               DeviceMode::kModeFullNetworkData));
+     mParentCandidate.SetLinkQualityOut(LinkQualityForLinkMargin(linkMarginOut));
+     mParentCandidate.SetState(Neighbor::kStateParentResponse);
++#if defined(OT_THREAD_ATTACH_TRACE)
++    fputs("thread-attach: Parent candidates accepted\n", stderr);
++#endif
+     mParentCandidate.SetKeySequence(aRxInfo.mKeySequence);
+     mParentCandidate.SetLeaderCost(connectivity.GetLeaderCost());
+ #if OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE
+@@ -5479,6 +5499,9 @@ void Mle::Attacher::HandleChildIdResponse(RxInfo &aRxInfo)
+     uint16_t           shortAddress;
+     MeshCoP::Timestamp timestamp;
+ 
++#if defined(OT_THREAD_ATTACH_TRACE)
++    fputs("thread-attach: Child ID responses processed\n", stderr);
++#endif
+     SuccessOrExit(error = Tlv::Find<SourceAddressTlv>(aRxInfo.mMessage, sourceAddress));
+ 
+     Log(kMessageReceive, kTypeChildIdResponse, aRxInfo.mMessageInfo.GetPeerAddr(), sourceAddress);
+@@ -5564,6 +5587,9 @@ void Mle::Attacher::HandleChildIdResponse(RxInfo &aRxInfo)
+     }
+ 
+     Get<Mle>().SetStateChild(shortAddress);
++#if defined(OT_THREAD_ATTACH_TRACE)
++    fputs("thread-attach: Child role entered\n", stderr);
++#endif
+ 
+     if (!Get<Mle>().IsRxOnWhenIdle())
+     {
+diff --git a/src/lib/spinel/spinel_driver.cpp b/src/lib/spinel/spinel_driver.cpp
+index 5be0f55..02a7e62 100644
+--- a/src/lib/spinel/spinel_driver.cpp
++++ b/src/lib/spinel/spinel_driver.cpp
+@@ -149,6 +149,13 @@ void SpinelDriver::ResetCoprocessor(bool aSoftwareReset)
+     mIsCoprocessorReady = false;
+     mWaitingKey         = SPINEL_PROP_LAST_STATUS;
+ 
++    // The caller explicitly chose to attach to an already-running RCP.
++    if (!aSoftwareReset)
++    {
++        mIsCoprocessorReady = true;
++        ExitNow(resetDone = true);
++    }
++
+     if (aSoftwareReset && (SendReset(SPINEL_RESET_STACK) == OT_ERROR_NONE) && (WaitResponse() == OT_ERROR_NONE))
+     {
+         VerifyOrExit(mIsCoprocessorReady, resetDone = false);
+diff --git a/src/posix/platform/CMakeLists.txt b/src/posix/platform/CMakeLists.txt
+index 9f071c1..69cf6c3 100644
+--- a/src/posix/platform/CMakeLists.txt
++++ b/src/posix/platform/CMakeLists.txt
+@@ -157,8 +157,6 @@ add_library(openthread-posix
+     radio_url.cpp
+     rcp_caps_diag.cpp
+     resolver.cpp
+-    settings.cpp
+-    settings_file.cpp
+     spinel_manager.cpp
+     spi_interface.cpp
+     system.cpp
+@@ -170,6 +168,12 @@ add_library(openthread-posix
+     virtual_time.cpp
+ )
+ 
++if(OT_SETTINGS_RAM)
++    target_sources(openthread-posix PRIVATE ${PROJECT_SOURCE_DIR}/examples/platforms/utils/settings_ram.c)
++else()
++    target_sources(openthread-posix PRIVATE settings.cpp settings_file.cpp)
++endif()
++
+ include(vendor.cmake)
+ 
+ target_link_libraries(openthread-posix
+diff --git a/src/posix/platform/openthread-posix-config.h b/src/posix/platform/openthread-posix-config.h
+index aa587ae..af13a78 100644
+--- a/src/posix/platform/openthread-posix-config.h
++++ b/src/posix/platform/openthread-posix-config.h
+@@ -461,7 +461,7 @@
+  * after the system is rebooted.
+  */
+ #ifndef OPENTHREAD_POSIX_CONFIG_TMP_STORAGE_ENABLE
+-#define OPENTHREAD_POSIX_CONFIG_TMP_STORAGE_ENABLE 1
++#define OPENTHREAD_POSIX_CONFIG_TMP_STORAGE_ENABLE 0
+ #endif
+ 
+ /**
+diff --git a/src/posix/platform/system.cpp b/src/posix/platform/system.cpp
+index f6bddb5..988c3d2 100644
+--- a/src/posix/platform/system.cpp
++++ b/src/posix/platform/system.cpp
+@@ -187,7 +187,9 @@ void platformInitNcpMode(otPlatformConfig *aPlatformConfig)
+ 
+ void platformInit(otPlatformConfig *aPlatformConfig)
+ {
++#if !OPENTHREAD_SETTINGS_RAM
+     platformSettingsInit(aPlatformConfig->mDataPath, aPlatformConfig->mSettingsFile);
++#endif
+ 
+ #if OPENTHREAD_POSIX_CONFIG_BACKTRACE_ENABLE
+     platformBacktraceInit();
+@@ -299,6 +301,13 @@ otInstance *otSysInit(otPlatformConfig *aPlatformConfig)
+     gDryRun = aPlatformConfig->mDryRun;
+     if (sCoprocessorType == OT_COPROCESSOR_RCP)
+     {
++        // A radio-only dry run must not create an instance that enables the PHY.
++        if (gDryRun)
++        {
++            platformRadioDeinit();
++            platformSpinelManagerDeinit();
++            exit(OT_EXIT_SUCCESS);
++        }
+         gInstance = otInstanceInitSingle();
+         OT_ASSERT(gInstance != nullptr);
+ 
