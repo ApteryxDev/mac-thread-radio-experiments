@@ -254,6 +254,10 @@ ChatGPT, Codex and Claude assisted throughout. The code and prose are not repres
 
 This repository does not replace the licences of the projects above.
 
+## 📄 License
+
+My own code and documentation are released under the [MIT License](LICENSE). pythreadradio and OpenThread are not included and keep their own licences.
+
 ---
 
 <div align="center">
